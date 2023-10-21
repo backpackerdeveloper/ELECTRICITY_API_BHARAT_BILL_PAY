@@ -4,7 +4,8 @@ from quart import Quart, request, jsonify
 app = Quart(__name__)
 
 async def scrape_data(consumer_number, subdivision_code, registered_mobile):
-    browser = await launch(headless=True)
+    # Remove the 'headless=True' option
+    browser = await launch()
     page = await browser.newPage()
     await page.goto("https://www.recharge1.com/online-electricity-bill-payment/jbvnl-jharkhand.aspx")
     await page.type("#ctl00_ContentPlaceHolder2_UtilityControlId_TXT_Consumer_Number", consumer_number)
