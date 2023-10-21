@@ -1,4 +1,2 @@
-pyppeteer
-quart
-gunicorn
-uvicorn
+selenium
+flask
