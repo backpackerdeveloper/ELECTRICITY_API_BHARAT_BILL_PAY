@@ -1,4 +1,3 @@
 pyppeteer
 quart
 gunicorn
-flask
