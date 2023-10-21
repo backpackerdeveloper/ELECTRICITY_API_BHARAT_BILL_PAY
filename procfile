@@ -1,1 +1,2 @@
-gunicorn -k uvicorn.workers.UvicornWorker your_flask_module:app
+gunicorn -k uvicorn.workers.UvicornWorker app:app
+
