@@ -1,50 +1,74 @@
-from pyppeteer import launch
-from quart import Quart, request, jsonify
+from flask import Flask, request, jsonify
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-app = Quart(__name__)
-
-async def scrape_data(consumer_number, subdivision_code, registered_mobile):
-    # Remove the 'headless=True' option
-    browser = await launch()
-    page = await browser.newPage()
-    await page.goto("https://www.recharge1.com/online-electricity-bill-payment/jbvnl-jharkhand.aspx")
-    await page.type("#ctl00_ContentPlaceHolder2_UtilityControlId_TXT_Consumer_Number", consumer_number)
-    await page.select("#ctl00_ContentPlaceHolder2_UtilityControlId_DDL_Subdivision_Code", subdivision_code)
-    await page.type("#ctl00_ContentPlaceHolder2_UtilityControlId_TXTCustomerNumber", registered_mobile)
-    await page.click("#ctl00_ContentPlaceHolder2_UtilityControlId_BtnCheckBill")
-    await page.waitForSelector("#ctl00_ContentPlaceHolder2_UtilityControlId_ctl01_lblheading")
-    consumer_number = await page.evaluate('() => document.evaluate("//span[text()=\'Consumer Number\']/following-sibling::span[1]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.textContent')
-    total_arrears = await page.evaluate('() => document.evaluate("//span[text()=\'Total Arrears\']/following-sibling::span[1]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.textContent')
-    net_amount = await page.evaluate('() => document.evaluate("//span[text()=\'Net Demand\']/following-sibling::span[1]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.textContent')
-    consumer_name = await page.evaluate('() => document.evaluate("//span[text()=\'CustomerName\']/following-sibling::span[1]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.textContent')
-    bill_number = await page.evaluate('() => document.evaluate("//span[text()=\'BillNumber\']/following-sibling::span[1]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.textContent')
-    due_date = await page.evaluate('() => document.evaluate("//span[text()=\'DueDate\']/following-sibling::span[1]", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.textContent')
-    await browser.close()
-    result = {
-        "Consumer Name": consumer_name.strip(),
-        "Consumer Number": consumer_number.strip(),
-        "Total Arrears": total_arrears.strip(),
-        "Bill Number": bill_number.strip(),
-        "Due Date": due_date.strip(),
-        "Net Amount": net_amount.strip(),
-    }
-    return result
+app = Flask(__name__)
 
 @app.route('/scrape', methods=['POST'])
-async def scrape():
-    try:
-        data = await request.get_json()
-        consumer_number = data.get("consumer_number")
-        subdivision_code = data.get("subdivision_code")
-        registered_mobile = data.get("registered_mobile")
-        result = await scrape_data(consumer_number, subdivision_code, registered_mobile)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)})
+def scrape_data():
+    # Parse input data in JSON format
+    data = request.get_json()
+    consumer_number = data.get('consumer_number')
+    subdivision_code = data.get('subdivision_code')
+    mobile_number = data.get('mobile_number')
 
-if __name__ == "__main__":
-    import os
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(scrape_data("your_consumer_number", "your_subdivision_code", "your_registered_mobile"))
+    # Set up Chrome options for headless mode
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+
+    # Initialize the Selenium web driver with Chrome options
+    driver = webdriver.Chrome(options=chrome_options)
+
+    # Base URL
+    base_url = "https://www.recharge1.com/online-electricity-bill-payment/jbvnl-jharkhand.aspx"
+
+    # Open the webpage
+    driver.get(base_url)
+
+    # Fill in the form data
+    driver.find_element(By.ID, "ctl00_ContentPlaceHolder2_UtilityControlId_TXT_Consumer_Number").send_keys(consumer_number)
+
+    # Select the Subdivision Code
+    subdivision_dropdown = Select(driver.find_element(By.ID, "ctl00_ContentPlaceHolder2_UtilityControlId_DDL_Subdivision_Code"))
+    subdivision_dropdown.select_by_value(subdivision_code)
+
+    driver.find_element(By.ID, "ctl00_ContentPlaceHolder2_UtilityControlId_TXTCustomerNumber").send_keys(mobile_number)
+
+    # Click the "Check Bill" button
+    driver.find_element(By.ID, "ctl00_ContentPlaceHolder2_UtilityControlId_BtnCheckBill").click()
+
+    # Add explicit waits to ensure elements are present
+    wait = WebDriverWait(driver, 5)  # Wait up to 10 seconds
+
+    try:
+        # Parse the data from the popup
+        data_to_scrape = {
+            "Consumer Number": consumer_number,
+            "Total Arrears": wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Total Arrears')]/following-sibling::span"))).text,
+            "Net Amount": wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Net Demand')]/following-sibling::span"))).text,
+            "Consumer Name": wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'CustomerName')]/following-sibling::span"))).text,
+            "Bill Number": wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'BillNumber')]/following-sibling::span"))).text,
+            "Due Date": wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'DueDate')]/following-sibling::span"))).text,
+        }
+
+    except Exception as e:
+        data_to_scrape = {
+            "Consumer Number": consumer_number,
+            "Total Arrears": "Not Found",
+            "Net Amount": "Not Found",
+            "Consumer Name": "Not Found",
+            "Bill Number": "Not Found",
+            "Due Date": "Not Found",
+        }
+
+    # Close the browser
+    driver.quit()
+
+    return jsonify(data_to_scrape)
+
+if __name__ == '__main__':
     app.run()
